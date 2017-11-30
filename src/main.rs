@@ -1,38 +1,21 @@
 extern crate futures;
-extern crate futures_cpupool;
+extern crate tokio_core;
+extern crate tokio_io;
 
-use futures::Future;
-use futures_cpupool::CpuPool;
-
-const BIG_PRIME: u64 = 15485867;
-
-fn is_prime(num: u64) -> bool {
-    (2..num)
-        .filter(|&i| num % i == 0)
-        .take(1)
-        .count() == 0
-}
+use futures::stream::Stream;
+use tokio_core::reactor::Core;
+use tokio_core::net::TcpListener;
 
 fn main() {
-    let pool = CpuPool::new_num_cpus();
-    let prime_future = pool.spawn_fn(
-        || -> Result<bool, ()> { Ok(is_prime(BIG_PRIME))});
+    let mut core = Core::new().unwrap();
+    let address = "[::1]:12345".parse().unwrap();
+    let listener = TcpListener::bind(&address, &core.handle()).unwrap();
 
-    println!("Created in the future");
+    let connections = listener.incoming();
+    let welcomes = connections.and_then(|(socket, _)| {
+        tokio_io::io::write_all(socket, b"Hello, world!\n") });
+    let server = welcomes.for_each(|(_, _)| {
+        Ok(()) });
 
-    if prime_future.wait().unwrap() {
-        println!("Prime")
-    } else {
-        println!("Not prime")
-    };
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        assert!(is_prime(BIG_PRIME));
-    }
+    core.run(server).unwrap();
 }
